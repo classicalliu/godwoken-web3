@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_jsonrpc_client::{BatchTransport, HttpClient, Output, Params as ClientParams, Transport};
 use ckb_jsonrpc_types::Script;
 use ckb_types::H256;
-use gw_jsonrpc_types::ckb_jsonrpc_types::Uint32;
+use gw_jsonrpc_types::{ckb_jsonrpc_types::Uint32, godwoken::TxReceipt};
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 use serde_json::{from_value, json};
@@ -47,6 +47,17 @@ impl GodwokenAsyncClient {
             .await?;
 
         Ok(script)
+    }
+
+    pub async fn get_transaction_receipt(&self, tx_hash: &H256) -> Result<Option<TxReceipt>> {
+        let tx_receipt: Option<TxReceipt> = self
+            .request(
+                "gw_get_transaction_receipt",
+                Some(ClientParams::Array(vec![json!(tx_hash)])),
+            )
+            .await?;
+
+        Ok(tx_receipt)
     }
 
     fn client(&self) -> &HttpClient {

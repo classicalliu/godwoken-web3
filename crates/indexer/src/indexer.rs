@@ -15,6 +15,7 @@ use crate::{
 use anyhow::{anyhow, Result};
 use ckb_hash::blake2b_256;
 use ckb_types::H256;
+use futures::{stream, StreamExt};
 use gw_common::{builtins::CKB_SUDT_ACCOUNT_ID, registry_address::RegistryAddress};
 use gw_types::{
     bytes::Bytes,
@@ -102,7 +103,7 @@ impl Web3Indexer {
     }
 
     // NOTE: remember to update `tx_index`, `cumulative_gas_used`, `log.transaction_index`
-    fn filter_single_transaction(
+    async fn filter_single_transaction(
         &self,
         l2_transaction: L2Transaction,
         block_number: u64,
@@ -203,7 +204,9 @@ impl Web3Indexer {
             let input = polyjuice_args.input.clone().unwrap_or_default();
 
             // read logs
-            let tx_receipt: TxReceipt = self.get_transaction_receipt(gw_tx_hash, block_number)?;
+            let tx_receipt: TxReceipt = self
+                .get_transaction_receipt(gw_tx_hash, block_number)
+                .await?;
             let log_item_vec = tx_receipt.logs();
 
             // read polyjuice system log
@@ -352,8 +355,9 @@ impl Web3Indexer {
 
                     let nonce: u32 = l2_transaction.raw().nonce().unpack();
 
-                    let tx_receipt: TxReceipt =
-                        self.get_transaction_receipt(gw_tx_hash, block_number)?;
+                    let tx_receipt: TxReceipt = self
+                        .get_transaction_receipt(gw_tx_hash, block_number)
+                        .await?;
 
                     let exit_code: u8 = tx_receipt.exit_code().into();
                     let web3_transaction = Web3Transaction::new(
@@ -469,12 +473,14 @@ impl Web3Indexer {
         let mut cumulative_gas_used: u128 = 0;
         let mut total_gas_limit: u128 = 0;
         for txs in txs_slice {
-            let l2_transaction_with_logs_vec = txs
-                .into_par_iter()
-                .map(|tx| {
-                    self.filter_single_transaction(tx, block_number, block_hash, &id_script_hashmap)
-                })
-                .collect::<Result<Vec<Option<Web3TransactionWithLogs>>>>()?;
+            let l2_transaction_with_logs_vec = futures::stream::iter(txs.into_iter().map(|tx| {
+                self.filter_single_transaction(tx, block_number, block_hash, &id_script_hashmap)
+            }))
+            .buffered(1000)
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
 
             let txs_vec = l2_transaction_with_logs_vec
                 .into_iter()
@@ -523,34 +529,39 @@ impl Web3Indexer {
         Ok((web3_txs_len, logs_len))
     }
 
-    fn get_transaction_receipt(
+    async fn get_receipt(
         &self,
-        gw_tx_hash: gw_common::H256,
+        gw_tx_hash: &gw_common::H256,
         block_number: u64,
     ) -> Result<TxReceipt> {
         let tx_hash = ckb_types::H256::from_slice(gw_tx_hash.as_slice())?;
         let tx_hash_hex = hex(tx_hash.as_bytes())
             .unwrap_or_else(|_| format!("convert tx hash: {:?} to hex format failed", tx_hash));
 
-        let get_receipt = || -> Result<TxReceipt> {
-            let tx_receipt: TxReceipt = self
-                .godwoken_rpc_client
-                .get_transaction_receipt(&tx_hash)?
-                .ok_or_else(|| {
-                    anyhow!(
-                        "tx receipt not found by tx_hash: ({}) of block: {}",
-                        tx_hash_hex,
-                        block_number,
-                    )
-                })?
-                .into();
-            Ok(tx_receipt)
-        };
+        let tx_receipt: TxReceipt = self
+            .godwoken_async_client
+            .get_transaction_receipt(&tx_hash)
+            .await?
+            .ok_or_else(|| {
+                anyhow!(
+                    "tx receipt not found by tx_hash: ({}) of block: {}",
+                    tx_hash_hex,
+                    block_number,
+                )
+            })?
+            .into();
+        Ok(tx_receipt)
+    }
 
+    async fn get_transaction_receipt(
+        &self,
+        gw_tx_hash: gw_common::H256,
+        block_number: u64,
+    ) -> Result<TxReceipt> {
         let max_retry = 10;
         let mut retry_times = 0;
         while retry_times < max_retry {
-            let receipt = get_receipt();
+            let receipt = self.get_receipt(&gw_tx_hash, block_number).await;
             match receipt {
                 Ok(tx_receipt) => return Ok(tx_receipt),
                 Err(err) => {
@@ -562,7 +573,7 @@ impl Web3Indexer {
                 }
             }
         }
-        get_receipt()
+        self.get_receipt(&gw_tx_hash, block_number).await
     }
 
     async fn build_web3_block(

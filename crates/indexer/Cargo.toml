@@ -7,11 +7,11 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gw-types = { git = "https://github.com/nervosnetwork/godwoken.git", rev = "6a24f9accd8f4463f122ebe1286412d1f8476247" }
-gw-common = { git = "https://github.com/nervosnetwork/godwoken.git", rev = "6a24f9accd8f4463f122ebe1286412d1f8476247" }
-gw-jsonrpc-types = { git = "https://github.com/nervosnetwork/godwoken.git", rev = "6a24f9accd8f4463f122ebe1286412d1f8476247" }
-ckb-hash = "0.100.0"
-ckb-types = "0.100.0"
+gw-types = { git = "https://github.com/nervosnetwork/godwoken.git", rev = "v1.6.0" }
+gw-common = { git = "https://github.com/nervosnetwork/godwoken.git", rev = "v1.6.0" }
+gw-jsonrpc-types = { git = "https://github.com/nervosnetwork/godwoken.git", rev = "v1.6.0" }
+ckb-hash = "0.104.0"
+ckb-types = "0.104.0"
 anyhow = { version = "1.0", features = ["backtrace"] }
 smol = "1.2.5"
 thiserror = "1.0"
